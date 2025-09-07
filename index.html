@@ -1,0 +1,396 @@
+<html>
+    <head>
+        <title>Top 10 finder</title>
+        <meta charset="UTF-8">
+    </head>
+
+<script type="text/javascript">
+
+    // functions to check end conditions
+    function rankings_assigned(list, skip) {
+        var rank_ok = true;
+        var next_band = null;
+        var skipped = 0;
+        var rnd = Math.floor(Math.random() * list.length);
+        for (var i = 0; i < list.length; i++) {
+            var a = list[(i + rnd) % list.length];
+            if (rank_ok === true || skipped < skip) { 
+                if (rank_ok === false) {
+                    skipped++;
+                }
+                if (a.rank == 0) {
+                    rank_ok = false;
+                    next_band = a.name;
+                }
+            }
+        }
+        return [rank_ok, next_band];
+    }
+
+    function bounds_tight(list, skip, limit) {
+        var bounds_tight = true;
+        var next_band = null;
+        var next_band_2 = null;
+        var skipped = 0;
+        list.forEach(a => {
+            if (bounds_tight == true || skipped < skip) {
+                if (bounds_tight == false) {
+                    skipped++;
+                }
+                if (limit > 0 && a.rank > limit) {
+                    bounds_tight &= true;
+                }
+                else {
+                    var upper_ok, lower_ok;
+                    var upper_bound = list.filter(b => b.rank == a.rank - 1)[0];
+                    if (upper_bound != null) {
+                        console.log("Checking clash history between " + a.name + " and " + upper_bound.name);
+                        upper_ok = a.already_lost_to.some(b => b == upper_bound.name);
+                    }
+                    else {
+                        // might be #1
+                        upper_ok = true;
+                    }
+
+                    var lower_bound = list.filter(b => b.rank == a.rank + 1)[0];
+                    if (lower_bound != null) {
+                        console.log("Checking clash history between " + a.name + " and " + lower_bound.name);
+                        lower_ok = lower_bound.already_lost_to.some(b => b == a.name);
+                    }
+                    else {
+                        // might be last
+                        lower_ok = true;
+                    }
+                    console.log(upper_ok + " " + lower_ok);
+
+                    bounds_tight &= (upper_ok && lower_ok);
+                    if (bounds_tight == false) {
+                        next_band = a.name;
+                        if (!upper_ok) {
+                            next_band_2 = upper_bound.name;
+                        }
+                        else if (!lower_ok) {
+                            next_band_2 = lower_bound.name;
+                        }
+                    }
+                }
+            }
+        });
+        return [bounds_tight, next_band, next_band_2];
+    }
+
+    // functions to manipulate DOM
+    function update_left (name) {
+        document.getElementById("clash_left").children[0].textContent = name;
+    }
+
+    function update_right (name) {
+        document.getElementById("clash_right").children[0].textContent = name;
+    }
+
+    function update_ranking (full_list) {
+        document.getElementById("top10_list").innerHTML = "";
+        var ranked_bands = full_list.filter(a => a.rank > 0).length;
+        for (var i = 1; i <= ranked_bands; i++) {
+            var b = full_list.filter(a => a.rank == i)[0];
+            if (b != null) {
+                var b_elem = document.createElement("b");
+                b_elem.textContent = b.name;
+                var li_elem = document.createElement("li");
+                li_elem.appendChild(b_elem);
+                document.getElementById("top10_list").appendChild(li_elem);
+            }
+        }
+    }
+
+    function clicked_clash(click_evt) {
+        var is_left = click_evt.target.parentNode.getAttribute("id") == "clash_left";
+        var winner = (is_left) ? document.getElementById("clash_left").children[0].textContent : document.getElementById("clash_right").children[0].textContent;
+        var loser = (is_left) ? document.getElementById("clash_right").children[0].textContent : document.getElementById("clash_left").children[0].textContent;
+
+        // perform logic
+        clash(winner, loser, bands);
+        var next = next_contenders(winner, loser, bands);
+
+        // update_ui
+        update_ranking(bands);
+        update_left(next[0]);
+        update_right(next[1]);
+    }
+
+    // logical functions to update ranking
+    function clash (winner, loser, full_list) {
+        console.log(winner + " beats " + loser + "!");
+        var w_list = full_list.filter(a => a.name == winner)[0];
+        var l_list = full_list.filter(a => a.name == loser)[0];
+        l_list.already_lost_to.push(w_list.name);
+        // I've never seen ether before: in theory, only for the very first clash
+        if (w_list.rank == 0 && l_list.rank == 0) {
+            var lowest_rank = 0;
+            full_list.forEach(a => { if (a.rank > lowest_rank) { lowest_rank = a.rank; }});
+            w_list.rank = lowest_rank + 1;
+            console.log("Assigned new ranking to " + w_list.name + ": " + w_list.rank);
+            l_list.rank = lowest_rank + 2;
+            console.log("Assigned new ranking to " + l_list.name + ": " + l_list.rank);
+        }
+        // never seen the winner before
+        else if (w_list.rank == 0) {
+            w_list.rank = l_list.rank;
+            console.log("Assigned new ranking to " + w_list.name + ": " + w_list.rank);
+            var any_higher_ranked = full_list.some(a => a.rank != 0 && a.rank < l_list.rank);
+            // this should actually always be true
+            if (any_higher_ranked) {
+                full_list.forEach(a => { if (a.rank >= l_list.rank && a.name != w_list.name) { a.rank += 1; console.log("Assigned new ranking to " + a.name + ": " + a.rank); }});
+            }
+            // easy fallback, in theory impossible
+            else {
+                w_list.rank = l_list.rank - 1;
+                console.log("Assigned new ranking to " + w_list.name + ": " + w_list.rank);
+            }
+        }
+        else if (l_list.rank == 0) {
+            // I've never seen the loser before, I don't want to assign ranking 
+            // for losses here, because I'd have to go down the side quest of 
+            // following the loser, while instead I'm still trying to determine
+            // correct ranking for the winner
+            // so I'll just assign it to the bottom for now
+            var lowest_rank = w_list.rank;
+            full_list.forEach(a => { if (a.rank > lowest_rank) { lowest_rank = a.rank; }});
+            l_list.rank = lowest_rank + 1;
+            console.log("Assigned new ranking to " + l_list.name + ": " + l_list.rank);
+        }
+        // already know both, must adjust relative rankings
+        else {
+            if (w_list.rank < l_list.rank) {
+                // nothing to do here, relative positions already correct
+                // so log this useless clash
+                // (it's actually not so useless, I should see this sometimes
+                // when a climbing name meets an higher ranked one that gets confirmed as higher ranked)
+                console.log("Ranking between " + w_list.name + " and " + l_list.name + " confirmed");
+            }
+            else {
+                var old_w_rank = w_list.rank;
+                var old_l_rank = l_list.rank;
+                // this only operates on the assumption that old_l_rank < old_w_rank, i.e. that current winner was below current loser by 1 or more, and so winner should get the place of loser, and loser, plus everything in between loser rank and winner old rank should get shifted down by one
+                full_list.forEach(a => { if (a.rank >= old_l_rank && a.rank < old_w_rank) { a.rank += 1; console.log("Assigned new ranking to " + a.name + ": " + a.rank); }});
+                w_list.rank = old_l_rank;
+                console.log("Assigned new ranking to " + w_list.name + ": " + w_list.rank);
+            }
+        }
+    }
+
+    function next_contenders (winner, loser, full_list) 
+    {
+        var w_list = full_list.filter(a => a.name == winner)[0];
+        var l_list = full_list.filter(a => a.name == loser)[0];
+        if (winner == last_winner && w_list.rank == last_winner_rank) {
+            count_same_winner++;
+            if (count_same_winner >= 5) {
+                // under normal logic, I may get same clashes with winner
+                // if e.g. it reaches second place and would win against 
+                // anyone else, I'm forced to go through the whole list
+                // break this "loop-ish" behaviour for UX
+                var next = [];
+                cand = rankings_assigned(bands, 0);
+                if (cand[0] === false) {
+                    console.log("New opponent!");
+                    next[0] = cand[1];
+                }
+                cand = rankings_assigned(bands, 1);
+                if (cand[0] === false) {
+                    console.log("New opponent!");
+                    next[1] = cand[1];
+                }
+                if (next[0] != null && next[1] != null) {
+                    return next;
+                }
+                cand = bounds_tight(bands, 0, 9999);
+                next[1] = cand[1];
+                next[0] = cand[2];
+                return next;
+            }
+        }
+        else {
+            last_winner = winner;
+            last_winner_rank = w_list.rank;
+            count_same_winner = 0;
+        }
+        var next = [];
+        // winner is not yet on top of the list, try to see if it can push higher before momentarily discarding it
+        if (w_list.rank > 1) {
+            console.log("Maintaining winner");
+            next[0] = w_list.name;
+            // Basic idea is: if I've not already determined ranking relative to the one just above, try that first
+            // however, that's too slow, so I tried to implement bisection here
+            var first_already_clashed = 0;
+            for (var delta = 1; delta < w_list.rank; delta++) {
+                var cand = full_list.filter(a => a.rank == w_list.rank - delta)[0];
+                if (cand != null) {
+                    var already_clashed = w_list.already_lost_to.some(b => b == cand.name);
+                    if (already_clashed) {
+                        first_already_clashed = delta;
+                        break;
+                    }
+                }
+            }
+            if (first_already_clashed == 1) {
+                // cannot check upwards
+                console.log("cannot climb anymore");
+            }
+            else {
+                if (first_already_clashed == 0) {
+                    first_already_clashed = w_list.rank - 1;
+                }
+                if (first_already_clashed > 0) {
+                    var cand = full_list.filter(a => a.rank == w_list.rank - Math.ceil(first_already_clashed / 2))[0];
+                    if (cand != null) {
+                        console.log("Checking if it can climb " + Math.ceil(first_already_clashed / 2) + " positions higher");
+                        next[1] = cand.name;
+                        return next;
+                    }
+                }
+            }
+            // otherwise, try unknown new band
+            cand = rankings_assigned(bands, 0);
+            if (cand[0] === false) {
+                console.log("New opponent!");
+                next[1] = cand[1];
+                return next;
+            }
+            else {
+                console.log("New opponent from bounds!");
+                cand = bounds_tight(bands, 0, 9999);
+                // what if this is also true? 
+                // should mean I'm in end condition
+                next[1] = cand[1];
+                next[0] = cand[2];
+                return next;
+            }
+        }
+        // winner is on top of the list (for now); leave it alone, try to do something more with loser
+        else {
+            console.log("Maintaining loser");
+            next[0] = l_list.name;
+            // If I've not already determined ranking relative to the one just below, try that first
+            var cand = full_list.filter(a => a.rank == l_list.rank + 1)[0];
+            if (cand != null) {
+                var already_clashed = cand.already_lost_to.some(c => c == l_list.name);
+                if (!already_clashed) {
+                    console.log("Checking if it must drop lower");
+                    next[1] = cand.name;
+                    return next;
+                }
+            }
+            // otherwise, try unknown new band
+            cand = rankings_assigned(bands, 0);
+            if (cand[0] === false) {
+                console.log("New opponent!");
+                next[1] = cand[1];
+                return next;
+            }
+            else {
+                console.log("New opponent from bounds!");
+                cand = bounds_tight(bands, 0, 9999);
+                // what if this is also true? 
+                // should mean I'm in end condition
+                next[1] = cand[1];
+                next[0] = cand[2];
+                return next;
+            }
+        }
+    }
+
+    // data to be gathered automatically from somewhere
+    var band_names = [
+	    //,
+	    //,
+	    //,
+	    //,
+    ];
+    var NUM_BANDS = band_names.length;
+
+    // construct object including metadata
+    var bands = [];
+    band_names.forEach(name => {
+        bands.push({
+            name: name,
+            rank: 0,
+            already_lost_to: [],
+        });
+    });
+    var last_winner = "";
+    var last_winner_rank = 0;
+    var count_same_winner = 0;
+
+    window.onload = () => {
+        next_left = rankings_assigned(bands, 0);
+        next_right = rankings_assigned(bands, 1);
+
+        update_left(next_left[1]);
+        update_right(next_right[1]);
+
+        document.getElementById("clash_left").onclick = clicked_clash;
+        document.getElementById("clash_right").onclick = clicked_clash;
+    };
+
+</script>
+
+<style>
+    #top10_container {
+        position: relative;
+        width: 80%;
+        left: 10%;
+        height: 50%;
+        overflow: scroll;
+        margin-bottom: 50px;
+    }
+    #clash_container {
+        position: relative;
+        width: 100%;
+    }
+    #clash_title {
+        position: relative;
+        width: 100%;
+        text-align: center;
+        float: none;
+    }
+    #clash_left {
+        float: left;
+        position: relative;
+        width: 45%;
+        text-align: right;
+    }
+    #clash_right {
+        float: right;
+        position: relative;
+        width: 45%;
+        text-align: left;
+    }
+    h3 {
+        font-size: 48pt;
+    }
+    #top10_list>li>b {
+        font-size: 32pt;
+    }
+</style>
+
+    <body>
+        <div id="top10_container">
+            <h2>Your Top ...</h2>
+            <ol id="top10_list">
+                <li><b>Who will win?<b></li>
+            </ol>
+        </div>
+        <div id="clash_container">
+            <div id="clash_title">
+                <h4>Which do you prefer?</h4>
+            </div>
+            <div id="clash_left">
+                <h3>Left</h3>
+            </div>
+            <div id="clash_right">
+                <h3>Right</h3>
+            </div>
+        </div>
+    </body>
+</html>
